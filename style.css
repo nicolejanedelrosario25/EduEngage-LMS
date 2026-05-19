@@ -57,6 +57,15 @@
     font-size: 14px;
 }
 
+.login-error {
+    margin: 0 0 18px;
+    padding: 10px 14px;
+    background: #fdecea;
+    color: #c0392b;
+    border-radius: 8px;
+    font-size: 13px;
+}
+
 .simple-input {
     height: 54px;
     background: #fbfdfc;
@@ -492,6 +501,16 @@
     gap: 22px;
 }
 
+.course-empty-state {
+    grid-column: 1 / -1;
+    background: white;
+    border-radius: 16px;
+    padding: 28px;
+    text-align: center;
+    color: #8a94a6;
+    box-shadow: 0 8px 18px rgba(0,0,0,0.04);
+}
+
 .learning-card {
     background: rgba(255,255,255,0.88);
     border-radius: 6px;
@@ -734,6 +753,21 @@
 
 .assignment-right-clean .gray-link {
     color: #8a94a6;
+}
+
+.submit-assignment-form {
+    margin: 0;
+}
+
+.submit-assignment-form button {
+    background: none;
+    border: none;
+    padding: 0;
+    color: #35b989;
+    font-weight: 800;
+    font-size: 13px;
+    font-family: 'Inter', Arial, sans-serif;
+    cursor: pointer;
 }
 
 .status-pill {
@@ -1150,9 +1184,38 @@
     box-sizing: border-box;
 }
 
+.discussion-title-input {
+    width: 100%;
+    border: none;
+    outline: none;
+    background: #f8fbfa;
+    border-radius: 8px;
+    padding: 12px 15px;
+    margin-bottom: 10px;
+    font-family: 'Inter', Arial, sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    box-sizing: border-box;
+}
+
+.discussion-topic-select {
+    border: none;
+    background: #f1f4f6;
+    color: #1f2933;
+    padding: 11px 15px;
+    border-radius: 8px;
+    font-family: 'Inter', Arial, sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    margin-right: auto;
+}
+
 .discussion-actions {
     display: flex;
     justify-content: space-between;
+    align-items: center;
+    gap: 10px;
     margin-top: 14px;
 }
 
@@ -1707,4 +1770,31 @@
 .send-clean-btn {
     background: #50cfa4 !important;
     color: white !important;
+}
+
+.compose-recipient-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: #f8fbfa;
+}
+
+.compose-recipient-name {
+    flex: 1;
+}
+
+.compose-recipient-name h3 {
+    margin: 0;
+    font-size: 14px;
+    color: #1f2933;
+}
+
+.compose-recipient-row .send-clean-btn {
+    border: none;
+    width: 38px;
+    height: 38px;
+    border-radius: 8px;
+    cursor: pointer;
 }

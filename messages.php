@@ -6,7 +6,113 @@ if (!isset($_SESSION['student_name'])) {
     exit();
 }
 
+require 'db.php';
+
+$user_id = $_SESSION['user_id'];
 $name = $_SESSION['student_name'];
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['body'], $_POST['conversation_id'])) {
+    $conv_id = (int)$_POST['conversation_id'];
+    $body = trim($_POST['body']);
+
+    if ($body !== '' && $conv_id > 0) {
+        $stmt = $db->prepare("SELECT 1 FROM conversation_participants WHERE conversation_id = ? AND user_id = ?");
+        $stmt->execute([$conv_id, $user_id]);
+
+        if ($stmt->fetchColumn()) {
+            $stmt = $db->prepare("INSERT INTO messages (conversation_id, sender_id, body) VALUES (?, ?, ?)");
+            $stmt->execute([$conv_id, $user_id, $body]);
+        }
+    }
+
+    header("Location: messages.php?conv=" . $conv_id);
+    exit();
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['recipient_id'])) {
+    $recipient_id = (int)$_POST['recipient_id'];
+
+    if ($recipient_id > 0 && $recipient_id !== $user_id) {
+        $stmt = $db->prepare("SELECT cp1.conversation_id FROM conversation_participants cp1 JOIN conversation_participants cp2 ON cp1.conversation_id = cp2.conversation_id WHERE cp1.user_id = ? AND cp2.user_id = ? LIMIT 1");
+        $stmt->execute([$user_id, $recipient_id]);
+        $existing = $stmt->fetchColumn();
+
+        if ($existing) {
+            header("Location: messages.php?conv=" . $existing);
+            exit();
+        }
+
+        $db->beginTransaction();
+        $db->exec("INSERT INTO conversations () VALUES ()");
+        $new_conv = (int)$db->lastInsertId();
+        $stmt = $db->prepare("INSERT INTO conversation_participants (conversation_id, user_id) VALUES (?, ?), (?, ?)");
+        $stmt->execute([$new_conv, $user_id, $new_conv, $recipient_id]);
+        $db->commit();
+
+        header("Location: messages.php?conv=" . $new_conv);
+        exit();
+    }
+
+    header("Location: messages.php");
+    exit();
+}
+
+$compose_mode = isset($_GET['compose']);
+$available_users = [];
+if ($compose_mode) {
+    $stmt = $db->prepare("SELECT user_id, first_name, last_name, avatar_initials FROM users WHERE user_id != ? AND is_active = TRUE ORDER BY first_name ASC");
+    $stmt->execute([$user_id]);
+    $available_users = $stmt->fetchAll();
+}
+
+$stmt = $db->prepare("SELECT COUNT(*) FROM messages m JOIN conversation_participants cp ON cp.conversation_id = m.conversation_id WHERE cp.user_id = ? AND m.sender_id != ? AND m.is_read = FALSE");
+$stmt->execute([$user_id, $user_id]);
+$inbox_count = $stmt->fetchColumn();
+
+$stmt = $db->prepare("SELECT COUNT(*) FROM messages WHERE sender_id = ?");
+$stmt->execute([$user_id]);
+$sent_count = $stmt->fetchColumn();
+
+$stmt = $db->prepare("SELECT COUNT(DISTINCT cp2.user_id) FROM conversation_participants cp1 JOIN conversation_participants cp2 ON cp1.conversation_id = cp2.conversation_id WHERE cp1.user_id = ? AND cp2.user_id != ?");
+$stmt->execute([$user_id, $user_id]);
+$contacts_count = $stmt->fetchColumn();
+
+$engagement = $sent_count > 0 ? min(100, $sent_count * 10 + 20) : 0;
+
+$stmt = $db->prepare("SELECT c.conversation_id, u.first_name, u.last_name, u.avatar_initials, u.user_id AS other_id, (SELECT body FROM messages WHERE conversation_id = c.conversation_id ORDER BY sent_at DESC LIMIT 1) AS last_body, (SELECT sent_at FROM messages WHERE conversation_id = c.conversation_id ORDER BY sent_at DESC LIMIT 1) AS last_sent FROM conversations c JOIN conversation_participants cp ON cp.conversation_id = c.conversation_id JOIN conversation_participants ocp ON ocp.conversation_id = c.conversation_id AND ocp.user_id != cp.user_id JOIN users u ON u.user_id = ocp.user_id WHERE cp.user_id = ? ORDER BY last_sent DESC");
+$stmt->execute([$user_id]);
+$conversations = $stmt->fetchAll();
+
+$active_conv_id = isset($_GET['conv']) ? (int)$_GET['conv'] : ($conversations[0]['conversation_id'] ?? null);
+$active_conv = null;
+$messages = [];
+
+if ($active_conv_id) {
+    foreach ($conversations as $c) {
+        if ($c['conversation_id'] == $active_conv_id) {
+            $active_conv = $c;
+            break;
+        }
+    }
+
+    if ($active_conv) {
+        $stmt = $db->prepare("UPDATE messages SET is_read = TRUE WHERE conversation_id = ? AND sender_id != ? AND is_read = FALSE");
+        $stmt->execute([$active_conv_id, $user_id]);
+
+        $stmt = $db->prepare("SELECT sender_id, body, sent_at FROM messages WHERE conversation_id = ? ORDER BY sent_at ASC");
+        $stmt->execute([$active_conv_id]);
+        $messages = $stmt->fetchAll();
+    }
+}
+
+function chat_time($datetime) {
+    $diff = time() - strtotime($datetime);
+    if ($diff < 86400) return date('g:i A', strtotime($datetime));
+    if ($diff < 172800) return 'Yesterday';
+    return date('M j', strtotime($datetime));
+}
+
+$user_colors = ['green-user', 'blue-user', 'purple-user'];
 ?>
 
 <!DOCTYPE html>
@@ -73,7 +179,7 @@ $name = $_SESSION['student_name'];
 
                     <div>
                         <h4><?php echo htmlspecialchars($name); ?></h4>
-                        <p>Student</p>
+                        <p><?php echo htmlspecialchars(ucfirst($_SESSION['role'])); ?></p>
                     </div>
 
                     <i class="fa-solid fa-caret-down"></i>
@@ -91,7 +197,7 @@ $name = $_SESSION['student_name'];
 
                 <div>
                     <p>Inbox</p>
-                    <h2>12 Messages</h2>
+                    <h2><?php echo (int)$inbox_count; ?> Messages</h2>
                     <span>Unread conversations</span>
                 </div>
             </div>
@@ -103,7 +209,7 @@ $name = $_SESSION['student_name'];
 
                 <div>
                     <p>Sent</p>
-                    <h2>28 Messages</h2>
+                    <h2><?php echo (int)$sent_count; ?> Messages</h2>
                     <span>Communication activity</span>
                 </div>
             </div>
@@ -115,7 +221,7 @@ $name = $_SESSION['student_name'];
 
                 <div>
                     <p>Contacts</p>
-                    <h2>15 People</h2>
+                    <h2><?php echo (int)$contacts_count; ?> People</h2>
                     <span>Class interactions</span>
                 </div>
             </div>
@@ -127,7 +233,7 @@ $name = $_SESSION['student_name'];
 
                 <div>
                     <p>Engagement</p>
-                    <h2>88%</h2>
+                    <h2><?php echo (int)$engagement; ?>%</h2>
                     <span>Communication rate</span>
                 </div>
             </div>
@@ -141,114 +247,128 @@ $name = $_SESSION['student_name'];
                 <div class="messages-panel-header">
                     <h2>Inbox</h2>
 
-                    <button class="compose-clean">
+                    <a href="?compose=1" class="compose-clean" style="text-decoration:none;display:inline-flex;align-items:center;gap:8px;">
                         <i class="fa-solid fa-pen"></i> Compose
-                    </button>
+                    </a>
                 </div>
 
-                <div class="message-item-clean active-message-clean">
+                <?php foreach ($conversations as $c): ?>
+                    <?php
+                    $is_active = $c['conversation_id'] == $active_conv_id;
+                    $avatar_color = $user_colors[$c['other_id'] % count($user_colors)];
+                    ?>
+                    <a href="?conv=<?php echo (int)$c['conversation_id']; ?>" class="message-item-clean <?php echo $is_active ? 'active-message-clean' : ''; ?>" style="text-decoration:none;color:inherit;display:flex;">
 
-                    <div class="message-avatar green-user">T</div>
+                        <div class="message-avatar <?php echo $avatar_color; ?>"><?php echo htmlspecialchars($c['avatar_initials']); ?></div>
 
-                    <div class="message-content-clean">
-                        <div class="message-top-row">
-                            <h3>Josephine Petralba</h3>
-                            <span>8:30 AM</span>
+                        <div class="message-content-clean">
+                            <div class="message-top-row">
+                                <h3><?php echo htmlspecialchars($c['first_name'] . ' ' . $c['last_name']); ?></h3>
+                                <span><?php echo chat_time($c['last_sent']); ?></span>
+                            </div>
+
+                            <p>
+                                <?php echo htmlspecialchars($c['last_body']); ?>
+                            </p>
                         </div>
 
-                        <p>
-                            Please check the updated instruction for your research proposal.
-                        </p>
-                    </div>
-
-                </div>
-
-                <div class="message-item-clean">
-
-                    <div class="message-avatar blue-user">J</div>
-
-                    <div class="message-content-clean">
-                        <div class="message-top-row">
-                            <h3>Vincent Jorge Balista</h3>
-                            <span>Yesterday</span>
-                        </div>
-
-                        <p>
-                            Can you share the Figma wireframe link later?
-                        </p>
-                    </div>
-
-                </div>
-
-                <div class="message-item-clean">
-
-                    <div class="message-avatar purple-user">A</div>
-
-                    <div class="message-content-clean">
-                        <div class="message-top-row">
-                            <h3>Nathalie Faye Peter</h3>
-                            <span>May 12</span>
-                        </div>
-
-                        <p>
-                            Our discussion topic is already posted in the LMS.
-                        </p>
-                    </div>
-
-                </div>
+                    </a>
+                <?php endforeach; ?>
 
             </div>
 
             <div class="chat-panel-clean">
 
-                <div class="chat-header-clean">
+                <?php if ($compose_mode): ?>
 
-                    <div class="chat-user-clean">
+                    <div class="chat-header-clean">
 
-                        <div class="message-avatar green-user">T</div>
+                        <div class="chat-user-clean">
 
-                        <div>
-                            <h3>Josephine Petralba</h3>
-                            <p>Online · Systems Integration</p>
+                            <div class="message-avatar green-user"><i class="fa-solid fa-pen"></i></div>
+
+                            <div>
+                                <h3>New Conversation</h3>
+                                <p>Select a recipient</p>
+                            </div>
+
                         </div>
 
+                        <a href="messages.php" class="chat-more-btn" style="text-decoration:none;color:inherit;">
+                            <i class="fa-solid fa-xmark"></i>
+                        </a>
+
                     </div>
 
-                    <button class="chat-more-btn">
-                        <i class="fa-solid fa-ellipsis"></i>
-                    </button>
+                    <div class="chat-box-clean">
 
-                </div>
+                        <?php foreach ($available_users as $u): ?>
+                            <?php $avatar_color = $user_colors[$u['user_id'] % count($user_colors)]; ?>
+                            <form method="POST" class="compose-recipient-row">
+                                <input type="hidden" name="recipient_id" value="<?php echo (int)$u['user_id']; ?>">
 
-                <div class="chat-box-clean">
+                                <div class="message-avatar <?php echo $avatar_color; ?>"><?php echo htmlspecialchars($u['avatar_initials']); ?></div>
 
-                    <div class="chat-bubble-clean received-clean">
-                        Please check the updated instruction for your research proposal.
+                                <div class="compose-recipient-name">
+                                    <h3><?php echo htmlspecialchars($u['first_name'] . ' ' . $u['last_name']); ?></h3>
+                                </div>
+
+                                <button class="send-clean-btn" type="submit">
+                                    <i class="fa-solid fa-paper-plane"></i>
+                                </button>
+                            </form>
+                        <?php endforeach; ?>
+
                     </div>
 
-                    <div class="chat-bubble-clean sent-clean">
-                        Noted, Ma'am. I will review it today.
+                <?php elseif ($active_conv): ?>
+                    <?php $avatar_color = $user_colors[$active_conv['other_id'] % count($user_colors)]; ?>
+
+                    <div class="chat-header-clean">
+
+                        <div class="chat-user-clean">
+
+                            <div class="message-avatar <?php echo $avatar_color; ?>"><?php echo htmlspecialchars($active_conv['avatar_initials']); ?></div>
+
+                            <div>
+                                <h3><?php echo htmlspecialchars($active_conv['first_name'] . ' ' . $active_conv['last_name']); ?></h3>
+                                <p>Online</p>
+                            </div>
+
+                        </div>
+
+                        <button class="chat-more-btn">
+                            <i class="fa-solid fa-ellipsis"></i>
+                        </button>
+
                     </div>
 
-                    <div class="chat-bubble-clean received-clean">
-                        Make sure to include your LMS comparison and prototype improvement.
+                    <div class="chat-box-clean">
+
+                        <?php foreach ($messages as $m): ?>
+                            <?php $bubble_class = $m['sender_id'] == $user_id ? 'sent-clean' : 'received-clean'; ?>
+                            <div class="chat-bubble-clean <?php echo $bubble_class; ?>">
+                                <?php echo htmlspecialchars($m['body']); ?>
+                            </div>
+                        <?php endforeach; ?>
+
                     </div>
 
-                </div>
+                    <form method="POST" class="chat-input-clean">
+                        <input type="hidden" name="conversation_id" value="<?php echo (int)$active_conv_id; ?>">
 
-                <div class="chat-input-clean">
+                        <button type="button">
+                            <i class="fa-solid fa-paperclip"></i>
+                        </button>
 
-                    <button>
-                        <i class="fa-solid fa-paperclip"></i>
-                    </button>
+                        <input type="text" name="body" placeholder="Type your message..." required autocomplete="off">
 
-                    <input type="text" placeholder="Type your message...">
+                        <button class="send-clean-btn" type="submit">
+                            <i class="fa-solid fa-paper-plane"></i>
+                        </button>
 
-                    <button class="send-clean-btn">
-                        <i class="fa-solid fa-paper-plane"></i>
-                    </button>
-
-                </div>
+                    </form>
+                <?php endif; ?>
 
             </div>
 

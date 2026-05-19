@@ -1,10 +1,26 @@
 <?php
 session_start();
+require 'db.php';
+
+$error = '';
 
 if (isset($_POST['login'])) {
-    $_SESSION['student_name'] = $_POST['username'];
-    header("Location: dashboard.php");
-    exit();
+    $username = trim($_POST['username']);
+    $password = $_POST['password'];
+
+    $stmt = $db->prepare("SELECT user_id, password_hash, first_name, last_name, role FROM users WHERE (username = ? OR student_id = ?) AND is_active = TRUE LIMIT 1");
+    $stmt->execute([$username, $username]);
+    $user = $stmt->fetch();
+
+    if ($user && password_verify($password, $user['password_hash'])) {
+        $_SESSION['user_id'] = $user['user_id'];
+        $_SESSION['student_name'] = $user['first_name'] . ' ' . $user['last_name'];
+        $_SESSION['role'] = $user['role'];
+        header("Location: dashboard.php");
+        exit();
+    } else {
+        $error = 'Invalid username or password.';
+    }
 }
 ?>
 
@@ -31,6 +47,10 @@ if (isset($_POST['login'])) {
 
         <h1>Login</h1>
         <p>Enter your credentials to access EduEngage LMS.</p>
+
+        <?php if ($error): ?>
+            <p class="login-error"><?php echo htmlspecialchars($error); ?></p>
+        <?php endif; ?>
 
         <form method="POST">
 

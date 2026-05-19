@@ -6,7 +6,75 @@ if (!isset($_SESSION['student_name'])) {
     exit();
 }
 
+require 'db.php';
+
+$user_id = $_SESSION['user_id'];
 $name = $_SESSION['student_name'];
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_assignment_id'])) {
+    $assignment_id = (int)$_POST['submit_assignment_id'];
+
+    if ($assignment_id > 0) {
+        $stmt = $db->prepare("SELECT 1 FROM assignments a JOIN enrollments e ON e.course_id = a.course_id WHERE a.assignment_id = ? AND e.user_id = ?");
+        $stmt->execute([$assignment_id, $user_id]);
+
+        if ($stmt->fetchColumn()) {
+            $stmt = $db->prepare("INSERT INTO assignment_submissions (assignment_id, user_id, attempt_number, is_latest, status, submitted_at) VALUES (?, ?, 1, TRUE, 'submitted', NOW()) ON DUPLICATE KEY UPDATE status = 'submitted', submitted_at = NOW(), is_latest = TRUE");
+            $stmt->execute([$assignment_id, $user_id]);
+        }
+    }
+
+    header("Location: assignments.php");
+    exit();
+}
+
+$stmt = $db->prepare("SELECT COUNT(*) FROM assignment_submissions WHERE user_id = ? AND status = 'pending'");
+$stmt->execute([$user_id]);
+$pending_count = $stmt->fetchColumn();
+
+$stmt = $db->prepare("SELECT COUNT(*) FROM assignment_submissions WHERE user_id = ? AND status IN ('submitted', 'graded', 'late')");
+$stmt->execute([$user_id]);
+$submitted_count = $stmt->fetchColumn();
+
+$stmt = $db->prepare("SELECT COUNT(*) FROM assignments a JOIN enrollments e ON e.course_id = a.course_id WHERE e.user_id = ? AND a.due_at BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 7 DAY)");
+$stmt->execute([$user_id]);
+$this_week_count = $stmt->fetchColumn();
+
+$stmt = $db->prepare("SELECT COUNT(*) FROM assignment_submissions WHERE user_id = ?");
+$stmt->execute([$user_id]);
+$total_submissions = (int)$stmt->fetchColumn();
+$completion_percent = $total_submissions > 0 ? round(($submitted_count / $total_submissions) * 100) : 0;
+
+$stmt = $db->prepare("SELECT a.assignment_id, a.title, a.description, a.due_at, a.assignment_type, c.title AS course_title, s.status FROM assignments a JOIN enrollments e ON e.course_id = a.course_id JOIN courses c ON c.course_id = a.course_id LEFT JOIN assignment_submissions s ON s.assignment_id = a.assignment_id AND s.user_id = e.user_id WHERE e.user_id = ? ORDER BY a.due_at ASC");
+$stmt->execute([$user_id]);
+$assignments = $stmt->fetchAll();
+
+$stmt = $db->prepare("SELECT a.title, a.due_at FROM assignments a JOIN enrollments e ON e.course_id = a.course_id LEFT JOIN assignment_submissions s ON s.assignment_id = a.assignment_id AND s.user_id = e.user_id WHERE e.user_id = ? AND a.due_at >= NOW() AND (s.status IS NULL OR s.status = 'pending') ORDER BY a.due_at ASC LIMIT 2");
+$stmt->execute([$user_id]);
+$deadlines = $stmt->fetchAll();
+
+function assignment_style($status, $type) {
+    if ($status === 'submitted' || $status === 'graded') {
+        return ['green-round', 'fa-check-double'];
+    }
+    if ($type === 'quiz') {
+        return ['blue-round', 'fa-list-check'];
+    }
+    if ($type === 'project') {
+        return ['purple-round', 'fa-code'];
+    }
+    return ['orange-round', 'fa-file-pen'];
+}
+
+function assignment_action($status, $type) {
+    if ($status === 'submitted' || $status === 'graded') {
+        return ['View', 'gray-link'];
+    }
+    if ($type === 'quiz') {
+        return ['Start Quiz', ''];
+    }
+    return ['Submit', ''];
+}
 ?>
 
 <!DOCTYPE html>
@@ -72,7 +140,7 @@ $name = $_SESSION['student_name'];
 
                     <div>
                         <h4><?php echo htmlspecialchars($name); ?></h4>
-                        <p>Student</p>
+                        <p><?php echo htmlspecialchars(ucfirst($_SESSION['role'])); ?></p>
                     </div>
 
                     <i class="fa-solid fa-caret-down"></i>
@@ -90,7 +158,7 @@ $name = $_SESSION['student_name'];
 
                 <div>
                     <p>Pending</p>
-                    <h2>3 Tasks</h2>
+                    <h2><?php echo (int)$pending_count; ?> Tasks</h2>
                     <span>Due soon</span>
                 </div>
             </div>
@@ -102,7 +170,7 @@ $name = $_SESSION['student_name'];
 
                 <div>
                     <p>Submitted</p>
-                    <h2>8 Tasks</h2>
+                    <h2><?php echo (int)$submitted_count; ?> Tasks</h2>
                     <span>Good progress</span>
                 </div>
             </div>
@@ -114,7 +182,7 @@ $name = $_SESSION['student_name'];
 
                 <div>
                     <p>This Week</p>
-                    <h2>5 Tasks</h2>
+                    <h2><?php echo (int)$this_week_count; ?> Tasks</h2>
                     <span>Scheduled activities</span>
                 </div>
             </div>
@@ -126,7 +194,7 @@ $name = $_SESSION['student_name'];
 
                 <div>
                     <p>Completion</p>
-                    <h2>80%</h2>
+                    <h2><?php echo (int)$completion_percent; ?>%</h2>
                     <span>Assignment progress</span>
                 </div>
             </div>
@@ -153,85 +221,43 @@ $name = $_SESSION['student_name'];
 
             <div class="assignment-list">
 
-                <div class="assignment-card-clean">
-                    <div class="assignment-left-clean">
-                        <div class="round-icon orange-round">
-                            <i class="fa-solid fa-file-pen"></i>
+                <?php foreach ($assignments as $a): ?>
+                    <?php
+                    $status = $a['status'] ?? 'pending';
+                    [$icon_color, $icon] = assignment_style($status, $a['assignment_type']);
+                    [$action_label, $action_class] = assignment_action($status, $a['assignment_type']);
+                    $pill_class = ($status === 'submitted' || $status === 'graded') ? 'submitted-pill' : 'pending-pill';
+                    $pill_text = ($status === 'submitted' || $status === 'graded') ? 'Submitted' : 'Pending';
+                    ?>
+                    <div class="assignment-card-clean">
+                        <div class="assignment-left-clean">
+                            <div class="round-icon <?php echo $icon_color; ?>">
+                                <i class="fa-solid <?php echo $icon; ?>"></i>
+                            </div>
+
+                            <div>
+                                <h3><?php echo htmlspecialchars($a['title']); ?></h3>
+                                <p><?php echo htmlspecialchars($a['course_title']); ?></p>
+                                <span><?php echo htmlspecialchars($a['description']); ?></span>
+                            </div>
                         </div>
 
-                        <div>
-                            <h3>Research Proposal</h3>
-                            <p>Systems Integration</p>
-                            <span>Create the initial proposal for the LMS A/B Testing research study.</span>
+                        <div class="assignment-right-clean">
+                            <small class="status-pill <?php echo $pill_class; ?>"><?php echo $pill_text; ?></small>
+                            <p><i class="fa-regular fa-calendar"></i> <?php echo date('M j, Y', strtotime($a['due_at'])); ?></p>
+                            <?php if ($status === 'submitted' || $status === 'graded'): ?>
+                                <a href="#" class="<?php echo $action_class; ?>"><?php echo $action_label; ?></a>
+                            <?php elseif ($a['assignment_type'] === 'quiz'): ?>
+                                <a href="quiz.php?id=<?php echo (int)$a['assignment_id']; ?>"><?php echo $action_label; ?></a>
+                            <?php else: ?>
+                                <form method="POST" class="submit-assignment-form">
+                                    <input type="hidden" name="submit_assignment_id" value="<?php echo (int)$a['assignment_id']; ?>">
+                                    <button type="submit"><?php echo $action_label; ?></button>
+                                </form>
+                            <?php endif; ?>
                         </div>
                     </div>
-
-                    <div class="assignment-right-clean">
-                        <small class="status-pill pending-pill">Pending</small>
-                        <p><i class="fa-regular fa-calendar"></i> May 18, 2026</p>
-                        <a href="#">Submit</a>
-                    </div>
-                </div>
-
-                <div class="assignment-card-clean">
-                    <div class="assignment-left-clean">
-                        <div class="round-icon green-round">
-                            <i class="fa-solid fa-check-double"></i>
-                        </div>
-
-                        <div>
-                            <h3>UI Wireframe Design</h3>
-                            <p>Web Systems</p>
-                            <span>Design the improved LMS dashboard wireframe using Figma.</span>
-                        </div>
-                    </div>
-
-                    <div class="assignment-right-clean">
-                        <small class="status-pill submitted-pill">Submitted</small>
-                        <p><i class="fa-regular fa-calendar"></i> May 20, 2026</p>
-                        <a href="#" class="gray-link">View</a>
-                    </div>
-                </div>
-
-                <div class="assignment-card-clean">
-                    <div class="assignment-left-clean">
-                        <div class="round-icon blue-round">
-                            <i class="fa-solid fa-list-check"></i>
-                        </div>
-
-                        <div>
-                            <h3>Database Quiz</h3>
-                            <p>Database Management</p>
-                            <span>Answer SQL, tables, relationships, and normalization questions.</span>
-                        </div>
-                    </div>
-
-                    <div class="assignment-right-clean">
-                        <small class="status-pill pending-pill">Pending</small>
-                        <p><i class="fa-regular fa-calendar"></i> May 22, 2026</p>
-                        <a href="#">Start Quiz</a>
-                    </div>
-                </div>
-
-                <div class="assignment-card-clean">
-                    <div class="assignment-left-clean">
-                        <div class="round-icon purple-round">
-                            <i class="fa-solid fa-code"></i>
-                        </div>
-
-                        <div>
-                            <h3>PHP Prototype Activity</h3>
-                            <p>Web Systems</p>
-                            <span>Create a PHP LMS prototype based on the research improvement.</span>
-                        </div>
-                    </div>
-
-                    <div class="assignment-right-clean">
-                        <small class="status-pill submitted-pill">Submitted</small>
-                        <p><i class="fa-regular fa-calendar"></i> May 24, 2026</p>
-                        <a href="#" class="gray-link">View</a>
-                    </div>
-                </div>
+                <?php endforeach; ?>
 
             </div>
 
@@ -239,21 +265,20 @@ $name = $_SESSION['student_name'];
 
                 <h2>Upcoming Deadlines</h2>
 
-                <div class="deadline-clean">
-                    <div>
-                        <h4>Research Proposal</h4>
-                        <p>Due May 18</p>
+                <?php foreach ($deadlines as $d): ?>
+                    <?php
+                    $days_left = (strtotime($d['due_at']) - time()) / 86400;
+                    $urgency_class = $days_left <= 3 ? 'urgent-pill' : 'soon-pill';
+                    $urgency_text = $days_left <= 3 ? 'Urgent' : 'Soon';
+                    ?>
+                    <div class="deadline-clean">
+                        <div>
+                            <h4><?php echo htmlspecialchars($d['title']); ?></h4>
+                            <p>Due <?php echo date('M j', strtotime($d['due_at'])); ?></p>
+                        </div>
+                        <span class="<?php echo $urgency_class; ?>"><?php echo $urgency_text; ?></span>
                     </div>
-                    <span class="urgent-pill">Urgent</span>
-                </div>
-
-                <div class="deadline-clean">
-                    <div>
-                        <h4>Database Quiz</h4>
-                        <p>Due May 22</p>
-                    </div>
-                    <span class="soon-pill">Soon</span>
-                </div>
+                <?php endforeach; ?>
 
                 <hr>
 
@@ -262,11 +287,11 @@ $name = $_SESSION['student_name'];
                 <p class="progress-label-clean">Overall assignment completion</p>
 
                 <div class="course-progress-line">
-                    <div style="width:80%"></div>
+                    <div style="width:<?php echo (int)$completion_percent; ?>%"></div>
                 </div>
 
                 <div class="assignment-percent-text">
-                    <h1>80%</h1>
+                    <h1><?php echo (int)$completion_percent; ?>%</h1>
                     <span>Completed</span>
                 </div>
 

@@ -6,7 +6,46 @@ if (!isset($_SESSION['student_name'])) {
     exit();
 }
 
+require 'db.php';
+
+$user_id = $_SESSION['user_id'];
 $name = $_SESSION['student_name'];
+
+$stmt = $db->prepare("SELECT ROUND(AVG(progress_percent)) FROM enrollments WHERE user_id = ?");
+$stmt->execute([$user_id]);
+$overall_progress = $stmt->fetchColumn() ?: 0;
+
+$stmt = $db->prepare("SELECT COALESCE(ROUND(SUM(duration_mins) / 60), 0) FROM study_sessions WHERE user_id = ?");
+$stmt->execute([$user_id]);
+$learning_hours = $stmt->fetchColumn();
+
+$stmt = $db->prepare("SELECT COUNT(*) FROM assignment_submissions WHERE user_id = ?");
+$stmt->execute([$user_id]);
+$total_submissions = (int)$stmt->fetchColumn();
+
+$stmt = $db->prepare("SELECT COUNT(*) FROM assignment_submissions WHERE user_id = ? AND status IN ('submitted', 'graded', 'late')");
+$stmt->execute([$user_id]);
+$submitted_count = (int)$stmt->fetchColumn();
+$assignment_percent = $total_submissions > 0 ? round(($submitted_count / $total_submissions) * 100) : 0;
+
+$stmt = $db->prepare("SELECT COUNT(*) FROM discussion_posts WHERE user_id = ?");
+$stmt->execute([$user_id]);
+$my_posts = (int)$stmt->fetchColumn();
+
+$stmt = $db->prepare("SELECT COUNT(*) FROM discussion_replies WHERE user_id = ?");
+$stmt->execute([$user_id]);
+$my_replies = (int)$stmt->fetchColumn();
+
+$participation_percent = min(100, ($my_posts + $my_replies) * 10);
+$engagement_percent = round(($overall_progress + $assignment_percent + $participation_percent) / 3);
+
+$stmt = $db->prepare("SELECT COUNT(*) FROM activity_logs WHERE user_id = ? AND activity_type = 'login'");
+$stmt->execute([$user_id]);
+$login_count = $stmt->fetchColumn();
+
+$stmt = $db->prepare("SELECT c.title, c.icon_class, c.color_theme, c.module_count, e.progress_percent, e.modules_completed FROM enrollments e JOIN courses c ON c.course_id = e.course_id WHERE e.user_id = ? ORDER BY e.progress_percent DESC");
+$stmt->execute([$user_id]);
+$courses = $stmt->fetchAll();
 ?>
 
 <!DOCTYPE html>
@@ -73,7 +112,7 @@ $name = $_SESSION['student_name'];
 
                     <div>
                         <h4><?php echo htmlspecialchars($name); ?></h4>
-                        <p>Student</p>
+                        <p><?php echo htmlspecialchars(ucfirst($_SESSION['role'])); ?></p>
                     </div>
 
                     <i class="fa-solid fa-caret-down"></i>
@@ -91,7 +130,7 @@ $name = $_SESSION['student_name'];
 
                 <div>
                     <p>Overall Progress</p>
-                    <h2>78%</h2>
+                    <h2><?php echo (int)$overall_progress; ?>%</h2>
                     <span>Course completion</span>
                 </div>
             </div>
@@ -103,7 +142,7 @@ $name = $_SESSION['student_name'];
 
                 <div>
                     <p>Learning Hours</p>
-                    <h2>32 hrs</h2>
+                    <h2><?php echo (int)$learning_hours; ?> hrs</h2>
                     <span>Total study time</span>
                 </div>
             </div>
@@ -115,7 +154,7 @@ $name = $_SESSION['student_name'];
 
                 <div>
                     <p>Assignments</p>
-                    <h2>80%</h2>
+                    <h2><?php echo (int)$assignment_percent; ?>%</h2>
                     <span>Submission rate</span>
                 </div>
             </div>
@@ -127,7 +166,7 @@ $name = $_SESSION['student_name'];
 
                 <div>
                     <p>Participation</p>
-                    <h2>92%</h2>
+                    <h2><?php echo (int)$participation_percent; ?>%</h2>
                     <span>Discussion activity</span>
                 </div>
             </div>
@@ -143,73 +182,24 @@ $name = $_SESSION['student_name'];
                     <a href="courses.php">View courses</a>
                 </div>
 
-                <div class="progress-course-item">
-                    <div class="round-icon orange-round">
-                        <i class="fa-solid fa-code"></i>
-                    </div>
-
-                    <div class="progress-course-info">
-                        <h3>Object Oriented Programming</h3>
-                        <p>12 / 15 Modules Completed</p>
-
-                        <div class="course-progress-line">
-                            <div style="width:78%"></div>
+                <?php foreach ($courses as $c): ?>
+                    <div class="progress-course-item">
+                        <div class="round-icon <?php echo htmlspecialchars($c['color_theme']); ?>">
+                            <i class="fa-solid <?php echo htmlspecialchars($c['icon_class']); ?>"></i>
                         </div>
-                    </div>
 
-                    <span>78%</span>
-                </div>
+                        <div class="progress-course-info">
+                            <h3><?php echo htmlspecialchars($c['title']); ?></h3>
+                            <p><?php echo (int)$c['modules_completed']; ?> / <?php echo (int)$c['module_count']; ?> Modules Completed</p>
 
-                <div class="progress-course-item">
-                    <div class="round-icon purple-round">
-                        <i class="fa-solid fa-server"></i>
-                    </div>
-
-                    <div class="progress-course-info">
-                        <h3>Systems Integration</h3>
-                        <p>9 / 14 Modules Completed</p>
-
-                        <div class="course-progress-line">
-                            <div style="width:65%"></div>
+                            <div class="course-progress-line">
+                                <div style="width:<?php echo (int)$c['progress_percent']; ?>%"></div>
+                            </div>
                         </div>
+
+                        <span><?php echo (int)$c['progress_percent']; ?>%</span>
                     </div>
-
-                    <span>65%</span>
-                </div>
-
-                <div class="progress-course-item">
-                    <div class="round-icon blue-round">
-                        <i class="fa-solid fa-globe"></i>
-                    </div>
-
-                    <div class="progress-course-info">
-                        <h3>Web Systems</h3>
-                        <p>18 / 20 Modules Completed</p>
-
-                        <div class="course-progress-line">
-                            <div style="width:90%"></div>
-                        </div>
-                    </div>
-
-                    <span>90%</span>
-                </div>
-
-                <div class="progress-course-item">
-                    <div class="round-icon green-round">
-                        <i class="fa-solid fa-database"></i>
-                    </div>
-
-                    <div class="progress-course-info">
-                        <h3>Database Management</h3>
-                        <p>10 / 14 Modules Completed</p>
-
-                        <div class="course-progress-line">
-                            <div style="width:72%"></div>
-                        </div>
-                    </div>
-
-                    <span>72%</span>
-                </div>
+                <?php endforeach; ?>
 
             </div>
 
@@ -219,7 +209,7 @@ $name = $_SESSION['student_name'];
 
                 <div class="progress-circle-wrap">
                     <div class="progress-circle-clean">
-                        <h1>88%</h1>
+                        <h1><?php echo (int)$engagement_percent; ?>%</h1>
                         <span>Engaged</span>
                     </div>
                 </div>
@@ -228,22 +218,22 @@ $name = $_SESSION['student_name'];
 
                     <div class="engagement-clean-item">
                         <span>Login Frequency</span>
-                        <strong>14 Times</strong>
+                        <strong><?php echo (int)$login_count; ?> Times</strong>
                     </div>
 
                     <div class="engagement-clean-item">
                         <span>Time Spent</span>
-                        <strong>32 hrs</strong>
+                        <strong><?php echo (int)$learning_hours; ?> hrs</strong>
                     </div>
 
                     <div class="engagement-clean-item">
                         <span>Discussion Posts</span>
-                        <strong>12 Posts</strong>
+                        <strong><?php echo (int)$my_posts; ?> Posts</strong>
                     </div>
 
                     <div class="engagement-clean-item">
                         <span>Assignment Completion</span>
-                        <strong>80%</strong>
+                        <strong><?php echo (int)$assignment_percent; ?>%</strong>
                     </div>
 
                 </div>

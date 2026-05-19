@@ -6,7 +6,47 @@ if (!isset($_SESSION['student_name'])) {
     exit();
 }
 
+require 'db.php';
+
+$user_id = $_SESSION['user_id'];
 $name = $_SESSION['student_name'];
+
+$year = (int)date('Y');
+$month = (int)date('n');
+$today = (int)date('j');
+$month_name = date('F Y');
+
+$first_of_month = mktime(0, 0, 0, $month, 1, $year);
+$first_dow = (int)date('w', $first_of_month);
+$days_in_month = (int)date('t', $first_of_month);
+$prev_month_days = (int)date('t', mktime(0, 0, 0, $month - 1, 1, $year));
+
+$stmt = $db->prepare("SELECT DAY(starts_at) AS d, title, event_type FROM calendar_events WHERE YEAR(starts_at) = ? AND MONTH(starts_at) = ?");
+$stmt->execute([$year, $month]);
+$events_by_day = [];
+foreach ($stmt->fetchAll() as $e) {
+    $events_by_day[(int)$e['d']] = $e;
+}
+
+$upcoming_count = $db->query("SELECT COUNT(*) FROM calendar_events WHERE starts_at >= NOW() AND starts_at < DATE_ADD(NOW(), INTERVAL 1 MONTH)")->fetchColumn();
+$deadline_count = $db->query("SELECT COUNT(*) FROM calendar_events WHERE event_type = 'deadline' AND starts_at >= NOW()")->fetchColumn();
+
+$stmt = $db->prepare("SELECT COUNT(*) FROM notifications WHERE user_id = ? AND is_read = FALSE");
+$stmt->execute([$user_id]);
+$reminder_count = $stmt->fetchColumn();
+
+$upcoming = $db->query("SELECT title, starts_at, event_type FROM calendar_events WHERE starts_at >= NOW() ORDER BY starts_at ASC LIMIT 3")->fetchAll();
+
+$event_style = [
+    'presentation' => ['orange-round', 'fa-display'],
+    'deadline'     => ['green-round',  'fa-file-pen'],
+    'discussion'   => ['blue-round',   'fa-comments'],
+    'class'        => ['purple-round', 'fa-chalkboard-user'],
+    'reminder'     => ['orange-round', 'fa-bell'],
+    'other'        => ['blue-round',   'fa-pencil-ruler'],
+];
+
+$total_cells = ceil(($first_dow + $days_in_month) / 7) * 7;
 ?>
 
 <!DOCTYPE html>
@@ -73,7 +113,7 @@ $name = $_SESSION['student_name'];
 
                     <div>
                         <h4><?php echo htmlspecialchars($name); ?></h4>
-                        <p>Student</p>
+                        <p><?php echo htmlspecialchars(ucfirst($_SESSION['role'])); ?></p>
                     </div>
 
                     <i class="fa-solid fa-caret-down"></i>
@@ -90,7 +130,7 @@ $name = $_SESSION['student_name'];
                 </div>
                 <div>
                     <p>Upcoming Events</p>
-                    <h2>5 Events</h2>
+                    <h2><?php echo (int)$upcoming_count; ?> Events</h2>
                     <span>This month</span>
                 </div>
             </div>
@@ -101,7 +141,7 @@ $name = $_SESSION['student_name'];
                 </div>
                 <div>
                     <p>Deadlines</p>
-                    <h2>3 Tasks</h2>
+                    <h2><?php echo (int)$deadline_count; ?> Tasks</h2>
                     <span>Need attention</span>
                 </div>
             </div>
@@ -112,7 +152,7 @@ $name = $_SESSION['student_name'];
                 </div>
                 <div>
                     <p>Today</p>
-                    <h2>May 13</h2>
+                    <h2><?php echo date('M j'); ?></h2>
                     <span>Current schedule</span>
                 </div>
             </div>
@@ -123,7 +163,7 @@ $name = $_SESSION['student_name'];
                 </div>
                 <div>
                     <p>Reminders</p>
-                    <h2>2 Alerts</h2>
+                    <h2><?php echo (int)$reminder_count; ?> Alerts</h2>
                     <span>Due soon</span>
                 </div>
             </div>
@@ -135,7 +175,7 @@ $name = $_SESSION['student_name'];
             <div class="calendar-main-panel">
 
                 <div class="calendar-header-clean">
-                    <h2>May 2026</h2>
+                    <h2><?php echo $month_name; ?></h2>
 
                     <div class="calendar-buttons">
                         <button><i class="fa-solid fa-chevron-left"></i></button>
@@ -156,45 +196,26 @@ $name = $_SESSION['student_name'];
 
                 <div class="calendar-clean-grid">
 
-                    <div class="calendar-clean-cell muted">26</div>
-                    <div class="calendar-clean-cell muted">27</div>
-                    <div class="calendar-clean-cell muted">28</div>
-                    <div class="calendar-clean-cell muted">29</div>
-                    <div class="calendar-clean-cell muted">30</div>
-                    <div class="calendar-clean-cell">1</div>
-                    <div class="calendar-clean-cell">2</div>
-
-                    <div class="calendar-clean-cell">3</div>
-                    <div class="calendar-clean-cell">4</div>
-                    <div class="calendar-clean-cell">5</div>
-                    <div class="calendar-clean-cell">6</div>
-                    <div class="calendar-clean-cell">7</div>
-                    <div class="calendar-clean-cell">8</div>
-                    <div class="calendar-clean-cell">9</div>
-
-                    <div class="calendar-clean-cell">10</div>
-                    <div class="calendar-clean-cell">11</div>
-                    <div class="calendar-clean-cell event">12 <small>Presentation</small></div>
-                    <div class="calendar-clean-cell today">13 <small>Today</small></div>
-                    <div class="calendar-clean-cell">14</div>
-                    <div class="calendar-clean-cell event">15 <small>Discussion</small></div>
-                    <div class="calendar-clean-cell">16</div>
-
-                    <div class="calendar-clean-cell">17</div>
-                    <div class="calendar-clean-cell event">18 <small>Proposal</small></div>
-                    <div class="calendar-clean-cell">19</div>
-                    <div class="calendar-clean-cell event">20 <small>Wireframe</small></div>
-                    <div class="calendar-clean-cell">21</div>
-                    <div class="calendar-clean-cell event">22 <small>DB Quiz</small></div>
-                    <div class="calendar-clean-cell">23</div>
-
-                    <div class="calendar-clean-cell">24</div>
-                    <div class="calendar-clean-cell">25</div>
-                    <div class="calendar-clean-cell">26</div>
-                    <div class="calendar-clean-cell">27</div>
-                    <div class="calendar-clean-cell">28</div>
-                    <div class="calendar-clean-cell">29</div>
-                    <div class="calendar-clean-cell">30</div>
+                    <?php for ($i = 0; $i < $total_cells; $i++): ?>
+                        <?php
+                        $day_num = $i - $first_dow + 1;
+                        if ($day_num < 1) {
+                            $display = $prev_month_days + $day_num;
+                            echo '<div class="calendar-clean-cell muted">' . $display . '</div>';
+                        } elseif ($day_num > $days_in_month) {
+                            $display = $day_num - $days_in_month;
+                            echo '<div class="calendar-clean-cell muted">' . $display . '</div>';
+                        } elseif ($day_num === $today) {
+                            echo '<div class="calendar-clean-cell today">' . $day_num . ' <small>Today</small></div>';
+                        } elseif (isset($events_by_day[$day_num])) {
+                            $ev = $events_by_day[$day_num];
+                            $label = strlen($ev['title']) > 10 ? substr($ev['title'], 0, 10) : $ev['title'];
+                            echo '<div class="calendar-clean-cell event">' . $day_num . ' <small>' . htmlspecialchars($label) . '</small></div>';
+                        } else {
+                            echo '<div class="calendar-clean-cell">' . $day_num . '</div>';
+                        }
+                        ?>
+                    <?php endfor; ?>
 
                 </div>
 
@@ -204,38 +225,19 @@ $name = $_SESSION['student_name'];
 
                 <h2>Upcoming Events</h2>
 
-                <div class="calendar-event-clean">
-                    <div class="round-icon orange-round">
-                        <i class="fa-solid fa-display"></i>
-                    </div>
+                <?php foreach ($upcoming as $u): ?>
+                    <?php [$color, $icon] = $event_style[$u['event_type']] ?? $event_style['other']; ?>
+                    <div class="calendar-event-clean">
+                        <div class="round-icon <?php echo $color; ?>">
+                            <i class="fa-solid <?php echo $icon; ?>"></i>
+                        </div>
 
-                    <div>
-                        <h4>Midterm Presentation</h4>
-                        <p>May 12 · 9:00 AM</p>
+                        <div>
+                            <h4><?php echo htmlspecialchars($u['title']); ?></h4>
+                            <p><?php echo date('M j · g:i A', strtotime($u['starts_at'])); ?></p>
+                        </div>
                     </div>
-                </div>
-
-                <div class="calendar-event-clean">
-                    <div class="round-icon green-round">
-                        <i class="fa-solid fa-file-pen"></i>
-                    </div>
-
-                    <div>
-                        <h4>Research Proposal</h4>
-                        <p>May 18 · 11:59 PM</p>
-                    </div>
-                </div>
-
-                <div class="calendar-event-clean">
-                    <div class="round-icon blue-round">
-                        <i class="fa-solid fa-pencil-ruler"></i>
-                    </div>
-
-                    <div>
-                        <h4>UI Wireframe</h4>
-                        <p>May 20 · 11:59 PM</p>
-                    </div>
-                </div>
+                <?php endforeach; ?>
 
                 <hr>
 

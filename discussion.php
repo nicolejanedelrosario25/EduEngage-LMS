@@ -6,7 +6,56 @@ if (!isset($_SESSION['student_name'])) {
     exit();
 }
 
+require 'db.php';
+
+$user_id = $_SESSION['user_id'];
 $name = $_SESSION['student_name'];
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['title'], $_POST['body'])) {
+    $title = trim($_POST['title']);
+    $body = trim($_POST['body']);
+    $topic_id = !empty($_POST['topic_id']) ? (int)$_POST['topic_id'] : null;
+
+    if ($title !== '' && $body !== '') {
+        $stmt = $db->prepare("INSERT INTO discussion_posts (user_id, topic_id, title, body) VALUES (?, ?, ?, ?)");
+        $stmt->execute([$user_id, $topic_id, $title, $body]);
+    }
+
+    header("Location: discussion.php");
+    exit();
+}
+
+$topics = $db->query("SELECT topic_id, name FROM discussion_topics ORDER BY name ASC")->fetchAll();
+
+$total_posts = $db->query("SELECT COUNT(*) FROM discussion_posts")->fetchColumn();
+$total_replies = $db->query("SELECT COUNT(*) FROM discussion_replies")->fetchColumn();
+
+$stmt = $db->query("SELECT DAYNAME(created_at) AS day, COUNT(*) AS c FROM discussion_posts GROUP BY day ORDER BY c DESC LIMIT 1");
+$most_active = $stmt->fetch();
+$most_active_day = $most_active ? $most_active['day'] : '—';
+
+$stmt = $db->prepare("SELECT COUNT(*) FROM discussion_posts WHERE user_id = ?");
+$stmt->execute([$user_id]);
+$my_posts = $stmt->fetchColumn();
+
+$stmt = $db->prepare("SELECT COUNT(*) FROM discussion_replies WHERE user_id = ?");
+$stmt->execute([$user_id]);
+$my_replies = $stmt->fetchColumn();
+
+$engagement = min(100, ($my_posts + $my_replies) * 10);
+$participation_status = ($my_posts + $my_replies) > 0 ? 'Active' : 'Inactive';
+
+$posts = $db->query("SELECT p.title, p.body, p.like_count, p.reply_count, p.created_at, p.user_id, u.first_name, u.last_name, u.avatar_initials, t.name AS topic_name, t.color_class AS topic_color FROM discussion_posts p JOIN users u ON u.user_id = p.user_id LEFT JOIN discussion_topics t ON t.topic_id = p.topic_id ORDER BY p.created_at DESC")->fetchAll();
+
+function time_ago($datetime) {
+    $diff = time() - strtotime($datetime);
+    if ($diff < 3600) return floor($diff / 60) . ' minutes ago';
+    if ($diff < 86400) return floor($diff / 3600) . ' hours ago';
+    if ($diff < 172800) return 'Yesterday';
+    return floor($diff / 86400) . ' days ago';
+}
+
+$user_colors = ['green-user', 'blue-user', 'purple-user'];
 ?>
 
 <!DOCTYPE html>
@@ -72,7 +121,7 @@ $name = $_SESSION['student_name'];
 
                     <div>
                         <h4><?php echo htmlspecialchars($name); ?></h4>
-                        <p>Student</p>
+                        <p><?php echo htmlspecialchars(ucfirst($_SESSION['role'])); ?></p>
                     </div>
 
                     <i class="fa-solid fa-caret-down"></i>
@@ -90,7 +139,7 @@ $name = $_SESSION['student_name'];
 
                 <div>
                     <p>Discussion Posts</p>
-                    <h2>12 Posts</h2>
+                    <h2><?php echo (int)$total_posts; ?> Posts</h2>
                     <span>Total participations</span>
                 </div>
             </div>
@@ -102,7 +151,7 @@ $name = $_SESSION['student_name'];
 
                 <div>
                     <p>Replies</p>
-                    <h2>18 Replies</h2>
+                    <h2><?php echo (int)$total_replies; ?> Replies</h2>
                     <span>Student interactions</span>
                 </div>
             </div>
@@ -114,7 +163,7 @@ $name = $_SESSION['student_name'];
 
                 <div>
                     <p>Most Active Day</p>
-                    <h2>Friday</h2>
+                    <h2><?php echo htmlspecialchars($most_active_day); ?></h2>
                     <span>Highest participation</span>
                 </div>
             </div>
@@ -126,7 +175,7 @@ $name = $_SESSION['student_name'];
 
                 <div>
                     <p>Engagement</p>
-                    <h2>92%</h2>
+                    <h2><?php echo (int)$engagement; ?>%</h2>
                     <span>Discussion activity</span>
                 </div>
             </div>
@@ -137,7 +186,7 @@ $name = $_SESSION['student_name'];
 
             <div class="discussion-feed">
 
-                <div class="create-discussion-card">
+                <form method="POST" class="create-discussion-card">
                     <div class="create-discussion-top">
                         <div class="profile-avatar">
                             <i class="fa-solid fa-user"></i>
@@ -149,69 +198,57 @@ $name = $_SESSION['student_name'];
                         </div>
                     </div>
 
-                    <textarea placeholder="Start a discussion or ask a question..."></textarea>
+                    <input type="text" name="title" placeholder="Discussion title..." class="discussion-title-input" required>
+
+                    <textarea name="body" placeholder="Start a discussion or ask a question..." required></textarea>
 
                     <div class="discussion-actions">
-                        <button class="attach-clean"><i class="fa-solid fa-paperclip"></i> Attach</button>
-                        <button class="post-clean"><i class="fa-solid fa-paper-plane"></i> Post Discussion</button>
+                        <select name="topic_id" class="discussion-topic-select">
+                            <option value="">No topic</option>
+                            <?php foreach ($topics as $t): ?>
+                                <option value="<?php echo (int)$t['topic_id']; ?>"><?php echo htmlspecialchars($t['name']); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+
+                        <button type="button" class="attach-clean"><i class="fa-solid fa-paperclip"></i> Attach</button>
+                        <button type="submit" class="post-clean"><i class="fa-solid fa-paper-plane"></i> Post Discussion</button>
                     </div>
-                </div>
+                </form>
 
-                <div class="discussion-card-clean">
-                    <div class="discussion-card-header">
-                        <div class="discussion-user-clean">
-                            <div class="discussion-avatar green-user">ND</div>
+                <?php foreach ($posts as $p): ?>
+                    <?php
+                    $avatar_color = $user_colors[$p['user_id'] % count($user_colors)];
+                    $topic_color = $p['topic_color'] ?: 'green-topic';
+                    ?>
+                    <div class="discussion-card-clean">
+                        <div class="discussion-card-header">
+                            <div class="discussion-user-clean">
+                                <div class="discussion-avatar <?php echo $avatar_color; ?>"><?php echo htmlspecialchars($p['avatar_initials']); ?></div>
 
-                            <div>
-                                <h4>Nicole Jane Del Rosario</h4>
-                                <p>2 hours ago</p>
+                                <div>
+                                    <h4><?php echo htmlspecialchars($p['first_name'] . ' ' . $p['last_name']); ?></h4>
+                                    <p><?php echo time_ago($p['created_at']); ?></p>
+                                </div>
                             </div>
+
+                            <?php if ($p['topic_name']): ?>
+                                <span class="topic-pill <?php echo htmlspecialchars($topic_color); ?>"><?php echo htmlspecialchars($p['topic_name']); ?></span>
+                            <?php endif; ?>
                         </div>
 
-                        <span class="topic-pill">UI Design</span>
-                    </div>
+                        <h2><?php echo htmlspecialchars($p['title']); ?></h2>
 
-                    <h2>How can UI design improve student engagement?</h2>
+                        <p class="discussion-text">
+                            <?php echo htmlspecialchars($p['body']); ?>
+                        </p>
 
-                    <p class="discussion-text">
-                        A clean dashboard can help students easily find assignments,
-                        deadlines, announcements, and course materials without confusion.
-                    </p>
-
-                    <div class="discussion-footer-clean">
-                        <span><i class="fa-regular fa-heart"></i> 24 Likes</span>
-                        <span><i class="fa-regular fa-comment"></i> 5 Replies</span>
-                        <span><i class="fa-solid fa-share"></i> Share</span>
-                    </div>
-                </div>
-
-                <div class="discussion-card-clean">
-                    <div class="discussion-card-header">
-                        <div class="discussion-user-clean">
-                            <div class="discussion-avatar blue-user">NP</div>
-
-                            <div>
-                                <h4>Nathalie Faye Peter</h4>
-                                <p>Yesterday</p>
-                            </div>
+                        <div class="discussion-footer-clean">
+                            <span><i class="fa-regular fa-heart"></i> <?php echo (int)$p['like_count']; ?> Likes</span>
+                            <span><i class="fa-regular fa-comment"></i> <?php echo (int)$p['reply_count']; ?> Replies</span>
+                            <span><i class="fa-solid fa-share"></i> Share</span>
                         </div>
-
-                        <span class="topic-pill blue-topic">LMS Features</span>
                     </div>
-
-                    <h2>Which LMS feature is most useful for students?</h2>
-
-                    <p class="discussion-text">
-                        I think progress tracking is one of the best features because students
-                        can monitor their completion and performance in real time.
-                    </p>
-
-                    <div class="discussion-footer-clean">
-                        <span><i class="fa-regular fa-heart"></i> 18 Likes</span>
-                        <span><i class="fa-regular fa-comment"></i> 3 Replies</span>
-                        <span><i class="fa-solid fa-share"></i> Share</span>
-                    </div>
-                </div>
+                <?php endforeach; ?>
 
             </div>
 
@@ -221,22 +258,22 @@ $name = $_SESSION['student_name'];
 
                 <div class="summary-clean-row">
                     <span>Total Posts</span>
-                    <strong>12</strong>
+                    <strong><?php echo (int)$my_posts; ?></strong>
                 </div>
 
                 <div class="summary-clean-row">
                     <span>Total Replies</span>
-                    <strong>18</strong>
+                    <strong><?php echo (int)$my_replies; ?></strong>
                 </div>
 
                 <div class="summary-clean-row">
                     <span>Participation Status</span>
-                    <strong>Active</strong>
+                    <strong><?php echo $participation_status; ?></strong>
                 </div>
 
                 <div class="summary-clean-row">
                     <span>Weekly Engagement</span>
-                    <strong>92%</strong>
+                    <strong><?php echo (int)$engagement; ?>%</strong>
                 </div>
 
                 <hr>

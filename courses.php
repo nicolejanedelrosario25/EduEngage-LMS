@@ -6,7 +6,34 @@ if (!isset($_SESSION['student_name'])) {
     exit();
 }
 
+require 'db.php';
+
+$user_id = $_SESSION['user_id'];
 $name = $_SESSION['student_name'];
+
+$search = trim($_GET['q'] ?? '');
+$category = trim($_GET['category'] ?? '');
+
+$sql = "SELECT c.title, c.lesson_count, c.duration_hours, c.icon_class, c.color_theme, c.status_label, CONCAT(u.first_name, ' ', u.last_name) AS instructor_name, e.progress_percent FROM enrollments e JOIN courses c ON c.course_id = e.course_id JOIN users u ON u.user_id = c.instructor_id LEFT JOIN categories cat ON cat.category_id = c.category_id WHERE e.user_id = ?";
+$params = [$user_id];
+
+if ($search !== '') {
+    $sql .= " AND c.title LIKE ?";
+    $params[] = '%' . $search . '%';
+}
+
+if ($category !== '') {
+    $sql .= " AND cat.name = ?";
+    $params[] = $category;
+}
+
+$sql .= " ORDER BY c.course_id ASC";
+
+$stmt = $db->prepare($sql);
+$stmt->execute($params);
+$courses = $stmt->fetchAll();
+
+$categories = $db->query("SELECT name FROM categories ORDER BY name ASC")->fetchAll();
 ?>
 
 <!DOCTYPE html>
@@ -72,7 +99,7 @@ $name = $_SESSION['student_name'];
 
                     <div>
                         <h4><?php echo htmlspecialchars($name); ?></h4>
-                        <p>Student</p>
+                        <p><?php echo htmlspecialchars(ucfirst($_SESSION['role'])); ?></p>
                     </div>
 
                     <i class="fa-solid fa-caret-down"></i>
@@ -81,185 +108,63 @@ $name = $_SESSION['student_name'];
 
         </header>
 
-        <section class="course-tools">
+        <form method="GET" class="course-tools">
 
             <div class="course-search">
                 <i class="fa-solid fa-magnifying-glass"></i>
-                <input type="text" placeholder="Search courses...">
+                <input type="text" name="q" placeholder="Search courses..." value="<?php echo htmlspecialchars($search); ?>">
             </div>
 
             <div class="course-sort">
-                <button><i class="fa-solid fa-filter"></i></button>
+                <button type="submit"><i class="fa-solid fa-filter"></i></button>
 
-                <select>
-                    <option>All Categories</option>
-                    <option>Programming</option>
-                    <option>Database</option>
-                    <option>Research</option>
+                <select name="category" onchange="this.form.submit()">
+                    <option value="">All Categories</option>
+                    <?php foreach ($categories as $cat): ?>
+                        <option value="<?php echo htmlspecialchars($cat['name']); ?>" <?php echo $category === $cat['name'] ? 'selected' : ''; ?>>
+                            <?php echo htmlspecialchars($cat['name']); ?>
+                        </option>
+                    <?php endforeach; ?>
                 </select>
 
-                <button class="active-view"><i class="fa-solid fa-grip"></i></button>
+                <button class="active-view" type="submit"><i class="fa-solid fa-grip"></i></button>
             </div>
 
-        </section>
+        </form>
 
         <section class="course-card-grid">
 
-            <div class="learning-card">
-                <div class="course-card-header">
-                    <div class="round-icon orange-round">
-                        <i class="fa-solid fa-code"></i>
+            <?php if (empty($courses)): ?>
+                <p class="course-empty-state">No courses found. Try a different search or category.</p>
+            <?php endif; ?>
+
+            <?php foreach ($courses as $c): ?>
+                <div class="learning-card">
+                    <div class="course-card-header">
+                        <div class="round-icon <?php echo htmlspecialchars($c['color_theme']); ?>">
+                            <i class="fa-solid <?php echo htmlspecialchars($c['icon_class']); ?>"></i>
+                        </div>
+                        <i class="fa-solid fa-ellipsis"></i>
                     </div>
-                    <i class="fa-solid fa-ellipsis"></i>
-                </div>
 
-                <h3>Web Application Development </h3>
-                <p class="instructor">Instructor: Roderick Bandalan</p>
+                    <h3><?php echo htmlspecialchars($c['title']); ?></h3>
+                    <p class="instructor">Instructor: <?php echo htmlspecialchars($c['instructor_name']); ?></p>
 
-                <div class="course-details">
-                    <span><i class="fa-regular fa-bookmark"></i> 15 Lessons</span>
-                    <span><i class="fa-regular fa-clock"></i> 40 Hours</span>
-                </div>
-
-                <div class="course-progress-line">
-                    <div style="width:78%"></div>
-                </div>
-
-                <div class="course-card-footer">
-                    <span>78%</span>
-                    <small>In Progress</small>
-                </div>
-            </div>
-
-            <div class="learning-card">
-                <div class="course-card-header">
-                    <div class="round-icon purple-round">
-                        <i class="fa-solid fa-server"></i>
+                    <div class="course-details">
+                        <span><i class="fa-regular fa-bookmark"></i> <?php echo (int)$c['lesson_count']; ?> Lessons</span>
+                        <span><i class="fa-regular fa-clock"></i> <?php echo (int)$c['duration_hours']; ?> Hours</span>
                     </div>
-                    <i class="fa-solid fa-ellipsis"></i>
-                </div>
 
-                <h3>Systems Integration</h3>
-                <p class="instructor">Instructor: Josephine Petralba</p>
-
-                <div class="course-details">
-                    <span><i class="fa-regular fa-bookmark"></i> 14 Lessons</span>
-                    <span><i class="fa-regular fa-clock"></i> 36 Hours</span>
-                </div>
-
-                <div class="course-progress-line">
-                    <div style="width:65%"></div>
-                </div>
-
-                <div class="course-card-footer">
-                    <span>65%</span>
-                    <small>In Progress</small>
-                </div>
-            </div>
-
-            <div class="learning-card">
-                <div class="course-card-header">
-                    <div class="round-icon blue-round">
-                        <i class="fa-solid fa-globe"></i>
+                    <div class="course-progress-line">
+                        <div style="width:<?php echo (int)$c['progress_percent']; ?>%"></div>
                     </div>
-                    <i class="fa-solid fa-ellipsis"></i>
-                </div>
 
-                <h3>Fundamentals of Data Analytics</h3>
-                <p class="instructor">Instructor: Josephine Petralba</p>
-
-                <div class="course-details">
-                    <span><i class="fa-regular fa-bookmark"></i> 20 Lessons</span>
-                    <span><i class="fa-regular fa-clock"></i> 45 Hours</span>
-                </div>
-
-                <div class="course-progress-line">
-                    <div style="width:90%"></div>
-                </div>
-
-                <div class="course-card-footer">
-                    <span>90%</span>
-                    <small>Almost Done</small>
-                </div>
-            </div>
-
-            <div class="learning-card">
-                <div class="course-card-header">
-                    <div class="round-icon green-round">
-                        <i class="fa-solid fa-database"></i>
+                    <div class="course-card-footer">
+                        <span><?php echo (int)$c['progress_percent']; ?>%</span>
+                        <small><?php echo htmlspecialchars($c['status_label']); ?></small>
                     </div>
-                    <i class="fa-solid fa-ellipsis"></i>
                 </div>
-
-                <h3>Database Management</h3>
-                <p class="instructor">Instructor: William Joe</p>
-
-                <div class="course-details">
-                    <span><i class="fa-regular fa-bookmark"></i> 14 Lessons</span>
-                    <span><i class="fa-regular fa-clock"></i> 38 Hours</span>
-                </div>
-
-                <div class="course-progress-line">
-                    <div style="width:72%"></div>
-                </div>
-
-                <div class="course-card-footer">
-                    <span>72%</span>
-                    <small>In Progress</small>
-                </div>
-            </div>
-
-            <div class="learning-card">
-                <div class="course-card-header">
-                    <div class="round-icon teal-round">
-                        <i class="fa-solid fa-flask"></i>
-                    </div>
-                    <i class="fa-solid fa-ellipsis"></i>
-                </div>
-
-                <h3>Research Methods</h3>
-                <p class="instructor">Instructor: Josephine Petralba</p>
-
-                <div class="course-details">
-                    <span><i class="fa-regular fa-bookmark"></i> 12 Lessons</span>
-                    <span><i class="fa-regular fa-clock"></i> 30 Hours</span>
-                </div>
-
-                <div class="course-progress-line">
-                    <div style="width:55%"></div>
-                </div>
-
-                <div class="course-card-footer">
-                    <span>55%</span>
-                    <small>In Progress</small>
-                </div>
-            </div>
-
-            <div class="learning-card">
-                <div class="course-card-header">
-                    <div class="round-icon pink-round">
-                        <i class="fa-solid fa-palette"></i>
-                    </div>
-                    <i class="fa-solid fa-ellipsis"></i>
-                </div>
-
-                <h3>UI Design Activity</h3>
-                <p class="instructor">Instructor: Ana Cruz</p>
-
-                <div class="course-details">
-                    <span><i class="fa-regular fa-bookmark"></i> 10 Lessons</span>
-                    <span><i class="fa-regular fa-clock"></i> 25 Hours</span>
-                </div>
-
-                <div class="course-progress-line">
-                    <div style="width:34%"></div>
-                </div>
-
-                <div class="course-card-footer">
-                    <span>34%</span>
-                    <small>New Course</small>
-                </div>
-            </div>
+            <?php endforeach; ?>
 
         </section>
 
